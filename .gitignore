@@ -330,3 +330,5 @@ ASALocalRun/
 .mfractor/
 /ErrorLog.txt
 /config.ini
+/src/ExileCore.dll
+/src/GameOffsets.dll

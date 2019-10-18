@@ -1,23 +1,16 @@
-﻿using PoeHUD.Plugins;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using ExileCore;
+using ExileCore.PoEMemory.Components;
+using ExileCore.PoEMemory.MemoryObjects;
+using ExileCore.Shared.Enums;
+using SharpDX;
 
 namespace MineDetonator
 {
-    using System;
-    using System.Collections.Generic;
-    using System.Linq;
-    using PoeHUD.Models;
-    using PoeHUD.Models.Enums;
-    using PoeHUD.Poe;
-    using PoeHUD.Poe.Components;
-    using SharpDX;
-
     public class Core : BaseSettingsPlugin<Settings>
     {
-        public Core()
-        {
-            PluginName = "Mines Detonator";
-        }
-
         private DateTime LastDetonTime;
 
         public override void Render()
@@ -25,26 +18,25 @@ namespace MineDetonator
             if (!GameController.InGame)
                 return;
             var actor = GameController.Player.GetComponent<Actor>();
-            var deployedObjects = actor.DeployedObjects.Where(x => x.Entity != null && x.Entity.Path == "Metadata/MiscellaneousObjects/RemoteMine").ToList();
+            var deployedObjects = actor.DeployedObjects.Where(x => x.Entity != null && x.Entity.Path.Contains("Metadata/MiscellaneousObjects/RemoteMine")).ToList();
 
             var realRange = Settings.DetonateDist.Value;
-            var CGSkill = actor.ActorSkills.Find(x => x.Name == "GlacialCascade");
-            if (CGSkill != null)
+            var mineSkill = actor.ActorSkills.Find(x => x.Name.ToLower().Contains("mine"));
+            if (mineSkill != null)
             {
-                if (CGSkill.Stats.TryGetValue(GameStat.TotalSkillAreaOfEffectPctIncludingFinal, out var areaPct))
+                if (mineSkill.Stats.TryGetValue(GameStat.TotalSkillAreaOfEffectPctIncludingFinal, out var areaPct))
                 {
-                    realRange = realRange + realRange * areaPct / 100f;
-                    var text = (100 + areaPct) + "%";
-                    Settings.CurrentAreaPct.Value = $"Skill dist: {text} ({realRange}). "; 
+                    realRange += realRange * areaPct / 100f;
+                    Settings.CurrentAreaPct.Value = realRange;
                 }
                 else
                 {
-                    Settings.CurrentAreaPct.Value = "100%";
+                    Settings.CurrentAreaPct.Value = 100;
                 }
             }
             else
             {
-                Settings.CurrentAreaPct.Value = "Skill GlacialCascade not found!";
+                Settings.CurrentAreaPct.Value = 0;
             }
 
 
@@ -53,18 +45,18 @@ namespace MineDetonator
                 return;
             }
 
-            var playerPos = deployedObjects.Last().Entity.PositionedComp.GridPos;// GameController.Player.PositionedComp.GridPos;
+            var playerPos = GameController.Player.GridPos;
 
-            Monsters = Monsters.Where(x => x.IsAlive).ToList();
+            _monsters = _monsters.Where(x => x.IsAlive).ToList();
 
-            var nearMonsters = Monsters.Where(x => x != null &&
+            var nearMonsters = _monsters.Where(x => x != null &&
 	            !x.GetComponent<Life>().HasBuff("hidden_monster") && 
 	            !x.GetComponent<Life>().HasBuff("avarius_statue_buff") && 
 				!x.GetComponent<Life>().HasBuff("hidden_monster_disable_minions") &&
                 FilterNullAction(x.GetComponent<Actor>()) &&
 				x.GetComponent<Actor>().CurrentAction?.Skill?.Name != "AtziriSummonDemons" &&
 				x.GetComponent<Actor>().CurrentAction?.Skill?.Id != 728 &&//Lab?
-	            Vector2.Distance(playerPos, x.PositionedComp.GridPos) < realRange).ToList();
+	            Vector2.Distance(playerPos, x.GridPos) < realRange).ToList();
 
             if (nearMonsters.Count == 0)
                 return;
@@ -76,7 +68,7 @@ namespace MineDetonator
 
             if ((DateTime.Now - LastDetonTime).TotalMilliseconds > Settings.DetonateDelay.Value)
             {
-                if (deployedObjects.Any(x => x.Entity != null && x.Entity.IsValid && x.Entity.GetComponent<Stats>().StatDictionary[(int) GameStat.CannotDie] == 0))
+                if (deployedObjects.Any(x => x.Entity != null && x.Entity.IsValid && x.Entity.GetComponent<Stats>().StatDictionary[GameStat.CannotDie] == 0))
                 {
                     LastDetonTime = DateTime.Now;
                     Keyboard.KeyPress(Settings.DetonateKey.Value);
@@ -84,11 +76,11 @@ namespace MineDetonator
             }
         }
 
-        private List<EntityWrapper> Monsters = new List<EntityWrapper>();
+        private List<Entity> _monsters = new List<Entity>();
 
         #region Overrides of BasePlugin
 
-        public override void EntityAdded(EntityWrapper entityWrapper)
+        public override void EntityAdded(Entity entityWrapper)
         {
             if (entityWrapper == null)
                 return;
@@ -107,7 +99,7 @@ namespace MineDetonator
 	            entityWrapper.Path.StartsWith("Metadata/Monsters/LeagueBetrayal/BetrayalUpgrades/BetrayalDaemonSummonUnholyRelic"))
 		        return;
 
-            Monsters.Add(entityWrapper);
+            _monsters.Add(entityWrapper);
         }
 
         private bool FilterNullAction(Actor actor)
@@ -118,7 +110,7 @@ namespace MineDetonator
             return true;
         }
 
-        public override void EntityRemoved(EntityWrapper entityWrapper)
+        public override void EntityRemoved(Entity entityWrapper)
         {
             if (entityWrapper == null)
                 return;
@@ -126,7 +118,7 @@ namespace MineDetonator
             if (!entityWrapper.HasComponent<Monster>())
                 return;
 
-            Monsters.Remove(entityWrapper);
+            _monsters.Remove(entityWrapper);
         }
 
         #endregion
